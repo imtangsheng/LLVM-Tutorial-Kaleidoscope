@@ -2,7 +2,8 @@
 
 [Getting Started with the LLVM System](https://llvm.org/docs/GettingStarted.html)
 
-[Implementing a Language with LLVM 用LLVM开发新语言](https://llvm-tutorial-cn.readthedocs.io/en/lahello/index.html)
+[Implementing a Language with LLVM 用LLVM开发新语言](https://llvm-tutorial-cn.readthedocs.io/en/latest/)
+
 # Building Clang and Working with the Code
 
 ## On Windows Systems for Debain

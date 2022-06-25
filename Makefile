@@ -1,7 +1,7 @@
 .RECIPEPREFIX = >
 
 test:
-> $(CC) -o test hello.c
+> clang++ main.cpp -o test
 
 clean:
 > @rm -f test *.o
