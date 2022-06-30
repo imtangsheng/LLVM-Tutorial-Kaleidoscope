@@ -5,4 +5,5 @@
 # 忽略的文件
 *.o
 test
-/test/*
+toy
+toy.cpp

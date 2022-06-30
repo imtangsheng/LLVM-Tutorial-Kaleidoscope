@@ -1,6 +1,10 @@
 # Implementing a Language with LLVM: Kaleidoscope
 # 用LLVM开发新语言
 
+[Getting Started with the LLVM System](https://llvm.org/docs/GettingStarted.html)
+
+[My First Language Frontend with LLVM Tutorial](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
+
 # 目录
 - [编译和安装LLVM](#building-clang-and-working-with-the-code)
 - [第一章 教程简介与词法分析器 第二章 实现语法分析器和AST 完整源码](#第一章-教程简介与词法分析器-第二章-实现语法分析器和ast-完整源码)
@@ -11,10 +15,6 @@
 - [第七章 对语言进行扩展：可变变量](#第七章-对语言进行扩展可变变量)
 - [第八章 结论及LLVM相关的其他有用内容](#第八章-结论及llvm相关的其他有用内容)
 
-
-[Getting Started with the LLVM System](https://llvm.org/docs/GettingStarted.html)
-
-[Implementing a Language with LLVM 用LLVM开发新语言](https://llvm-tutorial-cn.readthedocs.io/en/latest/)
 
 # Building Clang and Working with the Code
 
@@ -86,22 +86,21 @@ Note:
 
 [完整源码](https://llvm-tutorial-cn.readthedocs.io/en/latest/chapter-2.html#chapter-2-full-code)
 
+```
+# Compile
+clang++ -g -O3 toy.cpp `llvm-config --cxxflags`
+# Run
+./a.out
+```
+
 ## 第三章 LLVM IR代码生成
 
-配置好的c_cpp_properties.json到includePath中
-
-                "/usr/include/llvm-3.8",
-                "/usr/include/llvm-c-3.8"
-
-头文件路径修改
-
-    #include "llvm/IR/DerivedTypes.h"
-    #include "llvm/IR/IRBuilder.h"
-    #include "llvm/IR/LLVMContext.h"
-    #include "llvm/IR/Module.h"
-    #include "llvm/IR/Analysis/Verifier.h"
-
-During debugging, there was a problem with the header file and the relevant code was found. After running, the header file reports an error. When I was looking for the problem, I found that the Chinese tutorial version I said was too low, there were only three chapters, and my own wsl version of Debian system 9 resulted in a lack of software source dependencies, so I updated the system and software, whichever is the latest version.
+```
+# Compile
+clang++ -g -O3 toy.cpp `llvm-config --cxxflags --ldflags --system-libs --libs core` -o toy
+# Run
+./toy
+```
 
 ## 第四章 添加JIT和优化支持
 ## 第五章 对语言进行扩展：控制流程
