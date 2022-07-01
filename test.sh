@@ -120,3 +120,42 @@ echo "All tests passed"
 # ===----------------------------------------------------------------------===//
 # Chapter #4: Adding JIT and Optimizer Support 
 # ===----------------------------------------------------------------------===//
+
+# ready> extern sin(x);
+# Read extern:
+# declare double @sin(double)
+
+# ready> extern cos(x);
+# Read extern:
+# declare double @cos(double)
+
+# ready> sin(1.0);
+# Read top-level expression:
+# define double @2() {
+# entry:
+#   ret double 0x3FEAED548F090CEE
+# }
+
+# Evaluated to 0.841471
+
+# ready> def foo(x) sin(x)*sin(x) + cos(x)*cos(x);
+# Read function definition:
+# define double @foo(double %x) {
+# entry:
+#   %calltmp = call double @sin(double %x)
+#   %multmp = fmul double %calltmp, %calltmp
+#   %calltmp2 = call double @cos(double %x)
+#   %multmp4 = fmul double %calltmp2, %calltmp2
+#   %addtmp = fadd double %multmp, %multmp4
+#   ret double %addtmp
+# }
+
+# ready> foo(4.0);
+# Read top-level expression:
+# define double @3() {
+# entry:
+#   %calltmp = call double @foo(double 4.000000e+00)
+#   ret double %calltmp
+# }
+
+# Evaluated to 1.000000

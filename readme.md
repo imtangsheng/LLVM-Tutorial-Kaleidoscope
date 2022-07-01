@@ -1,9 +1,19 @@
 # Implementing a Language with LLVM: Kaleidoscope
 # 用LLVM开发新语言
 
+开发环境: 
+- Debian 11
+- clang 11
+- llvm 11
+
+参考
+
 [Getting Started with the LLVM System](https://llvm.org/docs/GettingStarted.html)
 
 [My First Language Frontend with LLVM Tutorial](https://llvm.org/docs/tutorial/MyFirstLanguageFrontend/index.html)
+
+[Kaleidoscope的源代码GitHub库](https://github.com/llvm-mirror/llvm/tree/master/examples/Kaleidoscope)
+Kaleidoscope的源代码GitHub库-llvm11 https://github.com/llvm/llvm-project/tree/release/11.x/llvm/examples/Kaleidoscope
 
 # 目录
 - [编译和安装LLVM](#building-clang-and-working-with-the-code)
@@ -103,6 +113,18 @@ clang++ -g -O3 toy.cpp `llvm-config --cxxflags --ldflags --system-libs --libs co
 ```
 
 ## 第四章 添加JIT和优化支持
+
+>**[Kaleidoscope的源代码GitHub库-llvm11](https://github.com/llvm/llvm-project/tree/release/11.x/llvm/examples/Kaleidoscope)**
+
+    https://github.com/llvm/llvm-project/tree/release/11.x/llvm/examples/Kaleidoscope
+
+```
+# Compile
+clang++ -g toy.cpp `llvm-config --cxxflags --ldflags --system-libs --libs core orcjit native` -O3 -o toy
+# Run
+./toy
+```
+
 ## 第五章 对语言进行扩展：控制流程
 ## 第六章 对语言进行扩展：用户自定义运算符
 ## 第七章 对语言进行扩展：可变变量
