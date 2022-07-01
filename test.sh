@@ -169,10 +169,76 @@ echo "All tests passed"
 # def baz(x) if x then foo() else bar();
 
 # extern putchard(char);
-# def printstar(n)
-#   for i = 1, i < n, 1.0 in
-#     putchard(42);  # ascii 42 = '*'
+# def printstar(n) for i = 1, i < n, 1.0 in putchard(42);
+
+# ascii 42 = '*'
 
 # # print 100 '*' characters
 # printstar(100);
 
+
+# ===----------------------------------------------------------------------===//
+# 6. Kaleidoscope: Extending the Language: User-defined Operators
+# ===----------------------------------------------------------------------===//
+
+    # ready> extern printd(x);
+    # Read extern:
+    # declare double @printd(double)
+
+    # ready> def binary : 1 (x y) 0;  # Low-precedence operator that ignores operands.
+    # ...
+    # ready> printd(123) : printd(456) : printd(789);
+    # 123.000000
+    # 456.000000
+    # 789.000000
+    # Evaluated to 0.000000
+
+    # ready> extern putchard(char);
+    # ...
+    # ready> def printdensity(d)
+    # if d > 8 then
+    #     putchard(32)  # ' '
+    # else if d > 4 then
+    #     putchard(46)  # '.'
+    # else if d > 2 then
+    #     putchard(43)  # '+'
+    # else
+    #     putchard(42); # '*'
+    # ...
+    # ready> printdensity(1): printdensity(2): printdensity(3):
+    #     printdensity(4): printdensity(5): printdensity(9):
+    #     putchard(10);
+    # **++.
+    # Evaluated to 0.000000
+
+    # # Determine whether the specific location diverges.
+    # # Solve for z = z^2 + c in the complex plane.
+    # def mandelconverger(real imag iters creal cimag)
+    # if iters > 255 | (real*real + imag*imag > 4) then
+    #     iters
+    # else
+    #     mandelconverger(real*real - imag*imag + creal,
+    #                     2*real*imag + cimag,
+    #                     iters+1, creal, cimag);
+
+    # # Return the number of iterations required for the iteration to escape
+    # def mandelconverge(real imag)
+    # mandelconverger(real, imag, 0, real, imag);
+
+    # # Compute and plot the mandelbrot set with the specified 2 dimensional range
+    # # info.
+    # def mandelhelp(xmin xmax xstep   ymin ymax ystep)
+    # for y = ymin, y < ymax, ystep in (
+    #     (for x = xmin, x < xmax, xstep in
+    #     printdensity(mandelconverge(x,y)))
+    #     : putchard(10)
+    # )
+
+    # # mandel - This is a convenient helper function for plotting the mandelbrot set
+    # # from the specified position with the specified Magnification.
+    # def mandel(realstart imagstart realmag imagmag)
+    # mandelhelp(realstart, realstart+realmag*78, realmag,
+    #             imagstart, imagstart+imagmag*40, imagmag);
+
+
+    # ready> mandel(-2.3, -1.3, 0.05, 0.07);
