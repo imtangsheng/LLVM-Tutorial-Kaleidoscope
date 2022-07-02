@@ -17,6 +17,7 @@
 #include "llvm/Transforms/InstCombine/InstCombine.h"
 #include "llvm/Transforms/Scalar.h"
 #include "llvm/Transforms/Scalar/GVN.h"
+#include "llvm/Transforms/Utils.h"
 #include <algorithm>
 #include <cassert>
 #include <cctype>
@@ -26,6 +27,7 @@
 #include <map>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace llvm;
@@ -57,12 +59,16 @@ enum Token {
 
     // operators
     tok_binary = -11,
-    tok_unary = -12
+    tok_unary = -12,
+
+    // var definition
+    tok_var = -13
 };
 
 static std::string IdentifierStr; // Filled in if tok_identifier
 static double NumVal;             // Filled in if tok_number
 
+/// gettok - Return the next token from standard input.
 static int gettok() {
     static int LastChar = ' ';
 
@@ -93,6 +99,8 @@ static int gettok() {
             return tok_binary;
         if (IdentifierStr == "unary")
             return tok_unary;
+        if (IdentifierStr == "var")    
+            return tok_var;
         return tok_identifier;
     }
 
@@ -156,6 +164,7 @@ public:
     VariableExprAST(const std::string &Name) : Name(Name) {}
 
     Value *codegen() override;
+    const std::string &getName() const { return Name; }
 };
 
 /// UnaryExprAST - Expression class for a unary operator.
@@ -208,6 +217,7 @@ public:
     Value *codegen() override;
 };
 
+/// ForExprAST - Expression class for for/in.
 class ForExprAST : public ExprAST {
     std::string VarName;
     std::unique_ptr<ExprAST> Start, End, Step, Body;
@@ -222,9 +232,23 @@ public:
     Value *codegen() override;
 };
 
+/// VarExprAST - Expression class for var/in
+class VarExprAST : public ExprAST {
+    std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;
+    std::unique_ptr<ExprAST> Body;
+
+public:
+    VarExprAST(
+        std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames,
+        std::unique_ptr<ExprAST> Body)
+        : VarNames(std::move(VarNames)), Body(std::move(Body)) {}
+
+    Value *codegen() override;        
+};
+
 /// PrototypeAST - This class represents the "prototype" for a function,
 /// which captures its name, and its argument names (thus implicitly the number
-/// of arguments the function takes).
+/// of arguments the function takes), as well as if it is an operator.
 class PrototypeAST {
     std::string Name;
     std::vector<std::string> Args;
@@ -251,6 +275,7 @@ public:
     unsigned getBinaryPrecedence() const { return Precedence; }
 };
 
+/// FunctionAST - This class represents a function definition itself.
 class FunctionAST {
     std::unique_ptr<PrototypeAST> Proto;
     std::unique_ptr<ExprAST> Body;
@@ -279,16 +304,19 @@ static int getNextToken() { return CurTok = gettok(); }
 /// defined.
 static std::map<char, int> BinopPrecedence;
 
+/// GetTokPrecedence - Get the precedence of the pending binary operator token.
 static int GetTokPrecedence() {
     if (!isascii(CurTok))
         return -1;
 
+    // Make sure it's a declared binop.
     int TokPrec = BinopPrecedence[CurTok];
     if (TokPrec <= 0)
         return -1;
     return TokPrec;
 }
 
+/// LogError* - These are little helper functions for error handling.
 std::unique_ptr<ExprAST> LogError(const char *Str) {
     fprintf(stderr, "Error: %s\n", Str);
     return nullptr;
@@ -301,6 +329,7 @@ std::unique_ptr<PrototypeAST> LogErrorP(const char *Str) {
 
 static std::unique_ptr<ExprAST> ParseExpression();
 
+/// numberexpr ::= number
 static std::unique_ptr<ExprAST> ParseNumberExpr() {
     auto Result = std::make_unique<NumberExprAST>(NumVal);
     getNextToken(); // consume the number
@@ -350,6 +379,7 @@ static std::unique_ptr<ExprAST> ParseIdentifierExpr() {
         }
     }
 
+    // Eat the ')'.
     getNextToken();
 
     return std::make_unique<CallExprAST>(IdName, std::move(Args));
@@ -359,6 +389,7 @@ static std::unique_ptr<ExprAST> ParseIdentifierExpr() {
 static std::unique_ptr<ExprAST> ParseIfExpr() {
     getNextToken(); // eat the if.
 
+    // condition.
     auto Cond = ParseExpression();
     if (!Cond)
         return nullptr;
@@ -409,6 +440,7 @@ static std::unique_ptr<ExprAST> ParseForExpr() {
     if (!End)
         return nullptr;
 
+    // The step value is optional.
     std::unique_ptr<ExprAST> Step;
     if (CurTok == ',') {
         getNextToken();
@@ -419,7 +451,7 @@ static std::unique_ptr<ExprAST> ParseForExpr() {
 
     if (CurTok != tok_in)
         return LogError("expected 'in' after for");
-    getNextToken();
+    getNextToken(); // eat 'in'.
 
     auto Body = ParseExpression();
     if (!Body)
@@ -429,12 +461,58 @@ static std::unique_ptr<ExprAST> ParseForExpr() {
                                         std::move(Step), std::move(Body));
 }
 
+/// varexpr ::= 'var' identifier ('=' expression)?
+//                    (',' identifier ('=' expression)?)* 'in' expression
+static std::unique_ptr<ExprAST> ParseVarExpr() {
+    getNextToken(); // eat the var.
+    
+    std::vector<std::pair<std::string, std::unique_ptr<ExprAST>>> VarNames;
+
+    if (CurTok != tok_identifier)
+        return LogError("expected identifier after var");
+    
+    while (true) {
+        std::string Name = IdentifierStr;
+        getNextToken(); // eat identifier.
+        
+        // Read the optional initializer.
+        std::unique_ptr<ExprAST> Init = nullptr;
+        if (CurTok == '=') {
+            getNextToken(); // eat the '='.
+
+            Init = ParseExpression();
+            if (!Init)
+                return nullptr;
+        }
+    
+        VarNames.push_back(std::make_pair(Name, std::move(Init)));
+
+        if (CurTok != ',')
+            break;
+        getNextToken(); // eat the ','.
+
+        if (CurTok != tok_identifier) 
+            return LogError("expected identifier list after var");
+    }
+    
+    if (CurTok != tok_in)
+        return LogError("expected 'in' keyword after 'var'");
+    getNextToken(); // eat 'in'.
+
+    auto Body = ParseExpression();
+    if (!Body)
+        return nullptr;
+    
+    return std::make_unique<VarExprAST>(std::move(VarNames), std::move(Body));
+}
+
 /// primary
 ///   ::= identifierexpr
 ///   ::= numberexpr
 ///   ::= parenexpr
 ///   ::= ifexpr
 ///   ::= forexpr
+///   ::= varexpr
 static std::unique_ptr<ExprAST> ParsePrimary() {
     switch (CurTok) {
         default:
@@ -449,6 +527,8 @@ static std::unique_ptr<ExprAST> ParsePrimary() {
             return ParseIfExpr();
         case tok_for:
             return ParseForExpr();
+        case tok_var:
+            return ParseVarExpr();
     }
 }
 
@@ -603,7 +683,7 @@ static std::unique_ptr<PrototypeAST> ParseExtern() {
 static LLVMContext TheContext;
 static IRBuilder<> Builder(TheContext);
 static std::unique_ptr<Module> TheModule;
-static std::map<std::string, Value *> NamedValues;
+static std::map<std::string, AllocaInst *> NamedValues;
 static std::unique_ptr<legacy::FunctionPassManager> TheFPM;
 static std::unique_ptr<KaleidoscopeJIT> TheJIT;
 static std::map<std::string, std::unique_ptr<PrototypeAST>> FunctionProtos;
@@ -628,6 +708,15 @@ Function *getFunction(std::string Name) {
   return nullptr;
 }
 
+/// CreateEntryBlockAlloca - Create an alloca instruction in the entry block of
+/// the function.  This is used for mutable variables etc.
+static AllocaInst *CreateEntryBlockAlloca(Function *TheFunction,
+                                          StringRef VarName) {
+  IRBuilder<> TmpB(&TheFunction->getEntryBlock(),
+                   TheFunction->getEntryBlock().begin());
+  return TmpB.CreateAlloca(Type::getDoubleTy(TheContext), nullptr, VarName);
+}
+
 Value *NumberExprAST::codegen() {
     return ConstantFP::get(TheContext, APFloat(Val));
 }
@@ -636,7 +725,8 @@ Value *VariableExprAST::codegen() {
     Value *V = NamedValues[Name];
     if (!V)
         return LogErrorV("Unknown variable name");
-    return V;
+
+    return Builder.CreateLoad(V, Name.c_str());
 }
 
 Value *UnaryExprAST::codegen() {
@@ -652,6 +742,29 @@ Value *UnaryExprAST::codegen() {
 }
 
 Value *BinaryExprAST::codegen() {
+    // Special case '=' because we don't want to emit the LHS as an expression.
+    if (Op == '=') {
+        // Assignment requires the LHS to be an identifier.
+        // This assume we're building without RTTI because LLVM builds that way by
+        // default.  If you build LLVM with RTTI this can be changed to a
+        // dynamic_cast for automatic error checking.
+        VariableExprAST *LHSE = static_cast<VariableExprAST *>(LHS.get());
+        if (!LHSE)
+            return LogErrorV("destination of '=' must be a variable");
+        // Codegen the RHS.
+        Value *Val = RHS->codegen();
+        if (!Val)
+            return nullptr;
+        
+        // Look up the name.
+        Value *Variable = NamedValues[LHSE->getName()];
+        if (!Variable)
+            return LogErrorV("Unknown variable name");
+        
+        Builder.CreateStore(Val, Variable);
+        return Val;
+    }
+
     Value *L = LHS->codegen();
     Value *R = RHS->codegen();
     if (!L || !R)
@@ -666,11 +779,14 @@ Value *BinaryExprAST::codegen() {
         return Builder.CreateFMul(L, R, "multmp");
     case '<': 
         L = Builder.CreateFCmpULT(L, R, "cmptmp");
+        // Convert bool 0/1 to double 0.0 or 1.0
         return Builder.CreateUIToFP(L, Type::getDoubleTy(TheContext), "booltmp");
     default:
         break;
     }
 
+    // If it wasn't a builtin binary operator, it must be a user defined one. Emit
+    // a call to it.
     Function *F = getFunction(std::string("binary") + Op);
     assert(F && "binary operator not found!");
 
@@ -741,25 +857,45 @@ Value *IfExprAST::codegen() {
     return PN;
 }
 
+// Output for-loop as:
+//   var = alloca double
+//   ...
+//   start = startexpr
+//   store start -> var
+//   goto loop
+// loop:
+//   ...
+//   bodyexpr
+//   ...
+// loopend:
+//   step = stepexpr
+//   endcond = endexpr
+//
+//   curvar = load var
+//   nextvar = curvar + step
+//   store nextvar -> var
+//   br endcond, loop, endloop
+// outloop:
 Value *ForExprAST::codegen() {
+    Function *TheFunction = Builder.GetInsertBlock()->getParent();
+
+    AllocaInst *Alloca = CreateEntryBlockAlloca(TheFunction, VarName);
+
     Value *StartVal = Start->codegen();
     if (!StartVal)
         return nullptr;
     
-    Function *TheFunction = Builder.GetInsertBlock()->getParent();
-    BasicBlock *PreheaderBB = Builder.GetInsertBlock();
+    // Store the value into the alloca.
+    Builder.CreateStore(StartVal, Alloca);
+
     BasicBlock *LoopBB = BasicBlock::Create(TheContext, "loop", TheFunction);
 
     Builder.CreateBr(LoopBB);
 
     Builder.SetInsertPoint(LoopBB);
 
-    PHINode *Variable = 
-        Builder.CreatePHI(Type::getDoubleTy(TheContext), 2, VarName);
-    Variable->addIncoming(StartVal, PreheaderBB);
-
-    Value *OldVal = NamedValues[VarName];
-    NamedValues[VarName] = Variable;
+    AllocaInst *OldVal = NamedValues[VarName];
+    NamedValues[VarName] = Alloca;
 
     if (!Body->codegen())
         return nullptr;
@@ -773,16 +909,16 @@ Value *ForExprAST::codegen() {
         StepVal = ConstantFP::get(TheContext, APFloat(1.0));
     }
 
-    Value *NextVar = Builder.CreateFAdd(Variable, StepVal, "nextvar");
-
     Value *EndCond = End->codegen();
     if (!EndCond)
         return nullptr;
     
+    Value *CurVar = Builder.CreateLoad(Alloca, VarName.c_str());
+    Value *NextVar = Builder.CreateFAdd(CurVar, StepVal, "nextvar");
+    Builder.CreateStore(NextVar, Alloca);
     EndCond = Builder.CreateFCmpONE(
         EndCond, ConstantFP::get(TheContext, APFloat(0.0)), "loopcond");
     
-    BasicBlock *LoopEndBB = Builder.GetInsertBlock();
     BasicBlock *AfterBB = 
         BasicBlock::Create(TheContext, "afterloop", TheFunction);
     
@@ -791,8 +927,6 @@ Value *ForExprAST::codegen() {
     // Any new code will be inserted in AfterBB.
     Builder.SetInsertPoint(AfterBB);
 
-    Variable->addIncoming(NextVar, LoopEndBB);
-
     // Restore the unshadowed variable.
     if (OldVal)
         NamedValues[VarName] = OldVal;
@@ -800,6 +934,42 @@ Value *ForExprAST::codegen() {
         NamedValues.erase(VarName);
     
     return Constant::getNullValue(Type::getDoubleTy(TheContext));
+}
+
+Value *VarExprAST::codegen() {
+    std::vector<AllocaInst *> OldBindings;
+
+    Function *TheFunction = Builder.GetInsertBlock()->getParent();
+
+    for (unsigned i = 0, e = VarNames.size(); i != e; ++i) {
+        const std::string &VarName = VarNames[i].first;
+        ExprAST *Init = VarNames[i].second.get();
+
+        Value *InitVal;
+        if (Init) {
+            InitVal = Init->codegen();
+            if (!InitVal)
+                return nullptr;
+        } else { // If not specified, use 0.0.
+            InitVal = ConstantFP::get(TheContext, APFloat(0.0));
+        }
+
+        AllocaInst *Alloca = CreateEntryBlockAlloca(TheFunction, VarName);
+        Builder.CreateStore(InitVal, Alloca);
+
+        OldBindings.push_back(NamedValues[VarName]);
+
+        NamedValues[VarName] = Alloca;
+    }
+
+    Value *BodyVal = Body->codegen();
+    if (!BodyVal)
+        return nullptr;
+    
+    for (unsigned i = 0, e = VarNames.size(); i != e; ++i)
+        NamedValues[VarNames[i].first] = OldBindings[i];
+    
+    return BodyVal;
 }
 
 Function *PrototypeAST::codegen() {
@@ -833,8 +1003,13 @@ Function *FunctionAST::codegen() {
     Builder.SetInsertPoint(BB);
 
     NamedValues.clear();
-    for (auto &Arg : TheFunction->args())
-        NamedValues[std::string(Arg.getName())] = &Arg;
+    for (auto &Arg : TheFunction->args()) {
+        AllocaInst *Alloca = CreateEntryBlockAlloca(TheFunction, Arg.getName());
+
+        Builder.CreateStore(&Arg, Alloca);
+
+        NamedValues[std::string(Arg.getName())] = Alloca;
+    }
 
     if (Value *RetVal = Body->codegen()) {
         Builder.CreateRet(RetVal);
@@ -859,23 +1034,25 @@ Function *FunctionAST::codegen() {
 //===----------------------------------------------------------------------===//
 
 static void InitializeModuleAndPassManager() {
-  // Open a new module.
-  TheModule = std::make_unique<Module>("my cool jit", TheContext);
-  TheModule->setDataLayout(TheJIT->getTargetMachine().createDataLayout());
+    // Open a new module.
+    TheModule = std::make_unique<Module>("my cool jit", TheContext);
+    TheModule->setDataLayout(TheJIT->getTargetMachine().createDataLayout());
 
-  // Create a new pass manager attached to it.
-  TheFPM = std::make_unique<legacy::FunctionPassManager>(TheModule.get());
+    // Create a new pass manager attached to it.
+    TheFPM = std::make_unique<legacy::FunctionPassManager>(TheModule.get());
 
-  // Do simple "peephole" optimizations and bit-twiddling optzns.
-  TheFPM->add(createInstructionCombiningPass());
-  // Reassociate expressions.
-  TheFPM->add(createReassociatePass());
-  // Eliminate Common SubExpressions.
-  TheFPM->add(createGVNPass());
-  // Simplify the control flow graph (deleting unreachable blocks, etc).
-  TheFPM->add(createCFGSimplificationPass());
+    // Promote allocas to registers.
+    TheFPM->add(createPromoteMemoryToRegisterPass());
+    // Do simple "peephole" optimizations and bit-twiddling optzns.
+    TheFPM->add(createInstructionCombiningPass());
+    // Reassociate expressions.
+    TheFPM->add(createReassociatePass());
+    // Eliminate Common SubExpressions.
+    TheFPM->add(createGVNPass());
+    // Simplify the control flow graph (deleting unreachable blocks, etc).
+    TheFPM->add(createCFGSimplificationPass());
 
-  TheFPM->doInitialization();
+    TheFPM->doInitialization();
 }
 
 static void HandleDefinition() {
@@ -987,6 +1164,7 @@ int main() {
 
     // Install standard binary operators.
     // 1 is lowest precedence.
+    BinopPrecedence['='] = 2;
     BinopPrecedence['<'] = 10;
     BinopPrecedence['+'] = 20;
     BinopPrecedence['-'] = 20;
