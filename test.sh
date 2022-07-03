@@ -275,3 +275,25 @@ echo "All tests passed"
 # ===----------------------------------------------------------------------===//
 # 8. 万花筒：编译为目标代码
 # ===----------------------------------------------------------------------===//
+
+# $ clang++ -g -O3 toy.cpp `llvm-config --cxxflags --ldflags --system-libs --libs all` -o toy
+
+# $ ./toy
+# ready> def average(x y) (x + y) * 0.5;
+# ^D
+# Wrote output.o
+
+
+# #include <iostream>
+
+# extern "C" {
+#     double average(double, double);
+# }
+
+# int main() {
+#     std::cout << "average of 3.0 and 4.0: " << average(3.0, 4.0) << std::endl;
+# }
+
+# $ clang++ main.cpp output.o -o main
+# $ ./main
+# average of 3.0 and 4.0: 3.5
