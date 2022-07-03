@@ -24,6 +24,7 @@ Kaleidoscope的源代码GitHub库-llvm11 https://github.com/llvm/llvm-project/tr
 - [第六章 对语言进行扩展：用户自定义运算符](#第六章-对语言进行扩展用户自定义运算符)
 - [第七章 对语言进行扩展：可变变量](#第七章-对语言进行扩展可变变量)
 - [第八章 编译为目标代码](#第八章-编译为目标代码)
+- [第九章 添加调试信息](#第九章-添加调试信息)
 
 
 # Building Clang and Working with the Code
@@ -163,4 +164,13 @@ We link our program to output.o and check the result is what we expected:
 $ clang++ main.cpp output.o -o main
 $ ./main
 average of 3.0 and 4.0: 3.5
+```
+
+## 第九章 添加调试信息
+
+```
+# Compile
+clang++ -g toy.cpp `llvm-config --cxxflags --ldflags --system-libs --libs core orcjit native` -O3 -o toy
+# Run
+./toy
 ```
